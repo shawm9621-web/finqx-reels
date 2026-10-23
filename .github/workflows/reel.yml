@@ -24,11 +24,11 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          REPORT_SECRET: ${{ secrets.REPORT_SECRET }}
         run: |
           set -e
-          echo "PWD: $(pwd)"
-          ls -la
-          ffmpeg -y -loglevel error -framerate 25 -i frames/f%04d.jpg -c:v libx264 -pix_fmt yuv420p -crf 20 video.mp4
+          ffmpeg -y -loglevel error -framerate 25 -i frames/f%04d.jpg -c:v libx264 -pix_fmt yuv420p -crf 23 video.mp4
           shopt -s nullglob nocaseglob
           MUSIC=""
           for f in music.mp3.mpeg *.mp3 *.mpeg *.mpg *.m4a *.wav *.ogg *.aac *.opus; do
@@ -36,17 +36,20 @@ jobs:
           done
           echo "FOUND MUSIC: [$MUSIC]"
           if [ -n "$MUSIC" ]; then
-            echo "MUSIC STREAMS:"
-            ffprobe -v error -show_entries stream=codec_type,codec_name,duration -of default=nw=1 "$MUSIC" || true
             ffmpeg -y -loglevel error -stream_loop -1 -i "$MUSIC" -vn -t 15 -af "volume=1.8,afade=t=in:d=1,afade=t=out:st=13:d=2" -ar 44100 -ac 2 -c:a aac -b:a 160k bg.m4a
           else
-            echo "NO MUSIC FOUND, silent"
             ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -c:a aac bg.m4a
           fi
           ffmpeg -y -loglevel error -i video.mp4 -i bg.m4a -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 160k -shortest reel.mp4
-          echo "FINAL VOLUME:"
-          ffmpeg -hide_banner -i reel.mp4 -vn -af volumedetect -f null - 2>&1 | grep -E "mean_volume|max_volume" || true
+          ls -la reel.mp4
           CAPTION=$(jq -r '.caption' manifest.json | head -c 900)
           curl -sS -F chat_id="$TELEGRAM_CHAT_ID" -F video=@reel.mp4 -F width=1080 -F height=1920 -F supports_streaming=true -F caption="$CAPTION" "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendVideo" -o tg.json
-          jq '.ok' tg.json
+          echo "TELEGRAM VIDEO OK: $(jq -r '.ok' tg.json)"
           [ "$(jq -r '.ok' tg.json)" = "true" ]
+          ID=$(jq -r '.id' manifest.json)
+          echo "REEL ID: $ID"
+          CODE=$(curl -sS -X POST "$SUPABASE_URL/functions/v1/reel-upload?id=$ID" -H "x-report-secret: $REPORT_SECRET" -H "Content-Type: video/mp4" --data-binary @reel.mp4 -o up.txt -w "%{http_code}")
+          echo "UPLOAD STATUS: $CODE"
+          cat up.txt
+          echo
+          [ "$CODE" = "200" ]
