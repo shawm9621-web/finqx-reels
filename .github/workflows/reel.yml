@@ -1,6 +1,8 @@
 name: Make Reel
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "30 13 * * *"
 jobs:
   reel:
     runs-on: ubuntu-latest
@@ -10,6 +12,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Make new reel slides
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          REPORT_SECRET: ${{ secrets.REPORT_SECRET }}
+        run: |
+          CODE="000"
+          for i in 1 2 3; do
+            CODE=$(curl -sS -m 170 -X POST "$SUPABASE_URL/functions/v1/social-reel" -H "x-report-secret: $REPORT_SECRET" -H "Content-Type: application/json" -d '{}' -o slides.txt -w "%{http_code}" || echo "000")
+            echo "SLIDES TRY $i STATUS: $CODE"
+            cat slides.txt || true
+            echo
+            if [ "$CODE" = "200" ]; then break; fi
+            sleep 30
+          done
+          [ "$CODE" = "200" ]
       - name: Install tools
         run: |
           sudo apt-get update
