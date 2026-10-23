@@ -4,35 +4,35 @@ on:
 jobs:
   reel:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Make and send reel
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+          npm init -y
+          npm install puppeteer
+      - name: Render frames
         env:
           MANIFEST_URL: ${{ secrets.MANIFEST_URL }}
+        run: node render.js
+      - name: Make video and send
+        env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -e
-          curl -sSf "$MANIFEST_URL?t=$(date +%s)" -o manifest.json
-          i=1
-          for u in $(jq -r '.urls[]' manifest.json); do
-            curl -sSf "$u" -o "s$i.jpg"
-            i=$((i+1))
-          done
-          rm -f list.txt
-          for i in 1 2 3 4 5; do
-            ffmpeg -y -loglevel error -i "s$i.jpg" -vf "zoompan=z='min(zoom+0.0012,1.12)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=75:s=1080x1920:fps=25,fade=t=in:st=0:d=0.4,fade=t=out:st=2.6:d=0.4,format=yuv420p" -frames:v 75 -c:v libx264 "c$i.mp4"
-            echo "file 'c$i.mp4'" >> list.txt
-          done
-          ffmpeg -y -loglevel error -f concat -safe 0 -i list.txt -c copy video.mp4
+          ffmpeg -y -loglevel error -framerate 25 -i frames/f%04d.jpg -c:v libx264 -pix_fmt yuv420p -crf 20 video.mp4
           if [ -f music.mp3 ]; then
-            ffmpeg -y -loglevel error -stream_loop -1 -i music.mp3 -t 15 -af "afade=t=in:d=1,afade=t=out:st=13:d=2" bg.wav
+            ffmpeg -y -loglevel error -stream_loop -1 -i music.mp3 -t 15 -af "afade=t=in:d=1,afade=t=out:st=13:d=2" -c:a aac -b:a 160k bg.m4a
           else
-            ffmpeg -y -loglevel error -f lavfi -i "sine=frequency=220:duration=15" -f lavfi -i "sine=frequency=277.18:duration=15" -f lavfi -i "sine=frequency=329.63:duration=15" -filter_complex "[0][1][2]amix=inputs=3,volume=2.2,tremolo=f=0.5:d=0.4,afade=t=in:d=1,afade=t=out:st=13:d=2" bg.wav
+            ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -c:a aac bg.m4a
           fi
-          ffmpeg -y -loglevel error -i video.mp4 -i bg.wav -c:v copy -c:a aac -b:a 128k -shortest reel.mp4
+          ffmpeg -y -loglevel error -i video.mp4 -i bg.m4a -c:v copy -c:a aac -shortest reel.mp4
           CAPTION=$(jq -r '.caption' manifest.json | head -c 900)
           curl -sS -F chat_id="$TELEGRAM_CHAT_ID" -F video=@reel.mp4 -F width=1080 -F height=1920 -F supports_streaming=true -F caption="$CAPTION" "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendVideo" -o tg.json
           jq '.ok' tg.json
