@@ -27,8 +27,10 @@ jobs:
         run: |
           set -e
           ffmpeg -y -loglevel error -framerate 25 -i frames/f%04d.jpg -c:v libx264 -pix_fmt yuv420p -crf 20 video.mp4
-          if [ -f music.mp3 ]; then
-            ffmpeg -y -loglevel error -stream_loop -1 -i music.mp3 -t 15 -af "afade=t=in:d=1,afade=t=out:st=13:d=2" -c:a aac -b:a 160k bg.m4a
+          MUSIC=$(find . -maxdepth 1 -type f \( -iname '.mp3' -o -iname '.mpeg' -o -iname '.m4a' -o -iname '.wav' -o -iname '.ogg' -o -iname '.aac' -o -iname '*.opus' \) | head -n 1)
+          echo "music file: $MUSIC"
+          if [ -n "$MUSIC" ]; then
+            ffmpeg -y -loglevel error -stream_loop -1 -i "$MUSIC" -t 15 -af "afade=t=in:d=1,afade=t=out:st=13:d=2" -c:a aac -b:a 160k bg.m4a
           else
             ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -c:a aac bg.m4a
           fi
