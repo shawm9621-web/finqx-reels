@@ -26,8 +26,14 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -e
+          echo "PWD: $(pwd)"
+          ls -la
           ffmpeg -y -loglevel error -framerate 25 -i frames/f%04d.jpg -c:v libx264 -pix_fmt yuv420p -crf 20 video.mp4
-          MUSIC=$(find . \( -path ./.git -o -path ./node_modules -o -path ./frames \) -prune -o -type f \( -iname '.mp3' -o -iname '.mpeg' -o -iname '.mpg' -o -iname '.m4a' -o -iname '.wav' -o -iname '.ogg' -o -iname '.aac' -o -iname '.opus' \) -print | head -n 1)
+          shopt -s nullglob nocaseglob
+          MUSIC=""
+          for f in music.mp3.mpeg *.mp3 *.mpeg *.mpg *.m4a *.wav *.ogg *.aac *.opus; do
+            if [ -f "$f" ]; then MUSIC="$f"; break; fi
+          done
           echo "FOUND MUSIC: [$MUSIC]"
           if [ -n "$MUSIC" ]; then
             echo "MUSIC STREAMS:"
@@ -38,8 +44,6 @@ jobs:
             ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=44100:cl=stereo -t 15 -c:a aac bg.m4a
           fi
           ffmpeg -y -loglevel error -i video.mp4 -i bg.m4a -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 160k -shortest reel.mp4
-          echo "FINAL STREAMS:"
-          ffprobe -v error -show_entries stream=codec_type,codec_name,duration -of default=nw=1 reel.mp4 || true
           echo "FINAL VOLUME:"
           ffmpeg -hide_banner -i reel.mp4 -vn -af volumedetect -f null - 2>&1 | grep -E "mean_volume|max_volume" || true
           CAPTION=$(jq -r '.caption' manifest.json | head -c 900)
